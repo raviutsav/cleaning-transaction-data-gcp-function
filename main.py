@@ -23,7 +23,7 @@ SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
 # Consistent default model throughout the application
-DEFAULT_MODEL = "gemini-2.5-flash"
+DEFAULT_MODEL = "gemini-3.1-flash"
 
 # Define Indian Standard Time (IST) timezone (UTC + 5:30)
 IST = timezone(timedelta(hours=5, minutes=30))
@@ -113,13 +113,35 @@ def fetch_sms_data(start_date: Optional[str] = None, end_date: Optional[str] = N
             end_dt_utc = end_dt_ist.astimezone(timezone.utc)
             end_timestamp = end_dt_utc.isoformat().replace("+00:00", "Z")
             
-        if start_timestamp:
-            query = query.gte("received_timestamp", start_timestamp)
-        if end_timestamp:
-            query = query.lte("received_timestamp", end_timestamp)
+        # Paging logic to fetch all messages in batches of 1000
+        all_data = []
+        page_size = 1000
+        offset = 0
+        
+        while True:
+            page_query = supabase.table(table_name).select("*, analyzed_transactions(*)")
+            if start_timestamp:
+                page_query = page_query.gte("received_timestamp", start_timestamp)
+            if end_timestamp:
+                page_query = page_query.lte("received_timestamp", end_timestamp)
+                
+            page_query = page_query.order("received_timestamp", desc=False)
+            page_query = page_query.range(offset, offset + page_size - 1)
             
-        response = query.execute()
-        data = response.data
+            response = page_query.execute()
+            page_data = response.data
+            
+            if not page_data:
+                break
+                
+            all_data.extend(page_data)
+            
+            if len(page_data) < page_size:
+                break
+                
+            offset += page_size
+            
+        data = all_data
         if not data:
             return [], [], []
             
