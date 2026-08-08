@@ -198,7 +198,7 @@ def save_analyzed_transactions(newly_analyzed: List[dict]):
         print(f"[!] Error saving analyzed transactions to Supabase: {e}")
         raise e
 
-def analyze_messages(to_be_analyzed: List[dict], model: str = "gemini-2.0-flash-lite", delay: float = 4.0) -> List[dict]:
+def analyze_messages(to_be_analyzed: List[dict], model: str = "gemini-3.1-flash-lite", delay: float =5.0) -> List[dict]:
     if not to_be_analyzed:
         return []
         
@@ -331,8 +331,8 @@ def analyze_spending(request):
     
     start_date = None
     end_date = None
-    model = "gemini-2.0-flash"
-    delay = 4.0
+    model = "gemini-3.1-flash"
+    delay = 5.0
     
     if request_json:
         start_date = request_json.get("start_date")
@@ -411,8 +411,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "-m", "--model",
         type=str,
-        default="gemini-2.0-flash",
-        help="Gemini model to use for analysis (default: gemini-2.0-flash)."
+        default="gemini-3.1-flash",
+        help="Gemini model to use for analysis (default: gemini-3.1-flash)."
     )
     args = parser.parse_args()
     
