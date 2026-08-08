@@ -23,7 +23,7 @@ SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
 # Consistent default model throughout the application
-DEFAULT_MODEL = "gemini-3.1-flash"
+DEFAULT_MODEL = "gemini-3.1-flash-lite"
 
 # Define Indian Standard Time (IST) timezone (UTC + 5:30)
 IST = timezone(timedelta(hours=5, minutes=30))
