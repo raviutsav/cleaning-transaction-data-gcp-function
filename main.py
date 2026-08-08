@@ -125,7 +125,8 @@ def fetch_sms_data(start_date: Optional[str] = None, end_date: Optional[str] = N
             if end_timestamp:
                 page_query = page_query.lte("received_timestamp", end_timestamp)
                 
-            page_query = page_query.order("received_timestamp", desc=False)
+            # Deterministic sorting (timestamp + ID) to prevent PostgREST paging overlaps/omissions
+            page_query = page_query.order("received_timestamp", desc=False).order("id", desc=False)
             page_query = page_query.range(offset, offset + page_size - 1)
             
             response = page_query.execute()
@@ -141,7 +142,15 @@ def fetch_sms_data(start_date: Optional[str] = None, end_date: Optional[str] = N
                 
             offset += page_size
             
-        data = all_data
+        # De-duplicate results list by message ID as a failsafe
+        seen_ids = set()
+        unique_data = []
+        for row in all_data:
+            if row["id"] not in seen_ids:
+                seen_ids.add(row["id"])
+                unique_data.append(row)
+                
+        data = unique_data
         if not data:
             return [], [], []
             
@@ -244,7 +253,9 @@ def analyze_messages(to_be_analyzed: List[dict], model: str = DEFAULT_MODEL, del
     # We will process in batches of 25 messages to stay within token limits and optimize network requests
     batch_size = 25
     newly_analyzed = []
-    original_map = {row["id"]: row for row in to_be_analyzed}
+    
+    # Convert keys to string for robust matching across integer/string types
+    original_map_str = {str(row["id"]): row for row in to_be_analyzed}
     
     for i in range(0, len(to_be_analyzed), batch_size):
         chunk = to_be_analyzed[i:i+batch_size]
@@ -340,24 +351,25 @@ def analyze_messages(to_be_analyzed: List[dict], model: str = DEFAULT_MODEL, del
             print("[*] Progress saved up to this point. Exiting to allow future resumption.")
             break
             
-        expected_ids = {row["id"] for row in chunk}
-        returned_ids = {item.msg_id for item in batch_result.transactions}
+        expected_ids_str = {str(row["id"]) for row in chunk}
+        returned_ids_str = {str(item.msg_id) for item in batch_result.transactions}
         
-        missing_ids = expected_ids - returned_ids
-        unexpected_ids = returned_ids - expected_ids
+        missing_ids_str = expected_ids_str - returned_ids_str
+        unexpected_ids_str = returned_ids_str - expected_ids_str
         
-        if unexpected_ids:
-            print(f"[!] Warning: Gemini returned unexpected message IDs: {unexpected_ids}. These will be ignored.")
+        if unexpected_ids_str:
+            print(f"[!] Warning: Gemini returned unexpected message IDs: {unexpected_ids_str}. These will be ignored.")
             
         batch_mapped = []
         for item in batch_result.transactions:
-            if item.msg_id not in expected_ids:
+            item_id_str = str(item.msg_id)
+            if item_id_str not in expected_ids_str:
                 continue
-            orig = original_map[item.msg_id]
+            orig = original_map_str[item_id_str]
             batch_mapped.append({
-                "id": item.msg_id,
+                "id": orig["id"], # Keep original ID type (int or UUID)
                 "sender": orig.get("sender", ""),
-                "message_body": orig.get("message_body", ""),
+                "message_body": orig.get("message_body") or "",
                 "received_timestamp": orig.get("received_timestamp", ""),
                 "device_name": orig.get("device_name"),
                 "created_at": orig.get("created_at"),
@@ -369,18 +381,18 @@ def analyze_messages(to_be_analyzed: List[dict], model: str = DEFAULT_MODEL, del
             })
             
         # If there are missing IDs, retry analyzing them in smaller requests in the current run
-        if missing_ids:
-            print(f"[!] Warning: Gemini failed to return results for expected message IDs: {missing_ids}. Retrying them...")
+        if missing_ids_str:
+            print(f"[!] Warning: Gemini failed to return results for expected message IDs: {missing_ids_str}. Retrying them...")
             retry_attempt = 0
             max_missing_retries = 3
-            current_missing_ids = set(missing_ids)
+            current_missing_ids = set(missing_ids_str)
             
             while current_missing_ids and retry_attempt < max_missing_retries:
                 retry_attempt += 1
                 print(f"      [~] Retrying {len(current_missing_ids)} missing messages (attempt {retry_attempt}/{max_missing_retries})...")
                 
                 # Format only the missing subset for the LLM
-                retry_chunk = [original_map[mid] for mid in current_missing_ids]
+                retry_chunk = [original_map_str[mid] for mid in current_missing_ids]
                 retry_messages_text = ""
                 for row in retry_chunk:
                     retry_messages_text += f"ID: {row['id']}\nSender: {row['sender']}\nMessage: {row['message_body']}\n{'-'*40}\n"
@@ -436,12 +448,13 @@ def analyze_messages(to_be_analyzed: List[dict], model: str = DEFAULT_MODEL, del
                         
                     new_returned_ids = set()
                     for item in retry_result.transactions:
-                        if item.msg_id in current_missing_ids:
-                            orig = original_map[item.msg_id]
+                        item_id_str = str(item.msg_id)
+                        if item_id_str in current_missing_ids:
+                            orig = original_map_str[item_id_str]
                             batch_mapped.append({
-                                "id": item.msg_id,
+                                "id": orig["id"], # Keep original ID type (int or UUID)
                                 "sender": orig.get("sender", ""),
-                                "message_body": orig.get("message_body", ""),
+                                "message_body": orig.get("message_body") or "",
                                 "received_timestamp": orig.get("received_timestamp", ""),
                                 "device_name": orig.get("device_name"),
                                 "created_at": orig.get("created_at"),
@@ -451,7 +464,7 @@ def analyze_messages(to_be_analyzed: List[dict], model: str = DEFAULT_MODEL, del
                                 "merchant": item.merchant,
                                 "category": item.category
                             })
-                            new_returned_ids.add(item.msg_id)
+                            new_returned_ids.add(item_id_str)
                             
                     current_missing_ids = current_missing_ids - new_returned_ids
                     
@@ -539,12 +552,7 @@ def analyze_spending(request):
     except Exception as e:
         return (jsonify({"error": f"Database fetch error: {str(e)}"}), 500, headers)
         
-    # Cache local non-transactions immediately
-    if local_non_transactions:
-        try:
-            save_analyzed_transactions(local_non_transactions)
-        except Exception as e:
-            return (jsonify({"error": f"Database save error for local non-transactions: {str(e)}"}), 500, headers)
+
         
     # 5. Process newly fetched unanalyzed transactions
     newly_analyzed = []
@@ -625,9 +633,7 @@ if __name__ == "__main__":
             print("[*] No messages found for the specified range.")
             sys.exit(0)
             
-        # Cache local non-transactions immediately
-        if local_non_transactions:
-            save_analyzed_transactions(local_non_transactions)
+
             
         newly_analyzed = []
         if to_be_analyzed:
