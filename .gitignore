@@ -1,0 +1,29 @@
+# Python environment
+.venv/
+env/
+venv/
+ENV/
+bin/
+lib/
+include/
+local/
+share/
+pyvenv.cfg
+pip-selfcheck.json
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environment variables (contains credentials)
+.env
+
+# IDEs
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp

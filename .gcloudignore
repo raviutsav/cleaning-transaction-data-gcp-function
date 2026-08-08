@@ -1,0 +1,23 @@
+# Ignore Git and metadata
+.git/
+.gitignore
+.gcloudignore
+
+# Ignore environment variables / secrets
+.env
+
+# Ignore Python dependencies and virtualenv
+.venv/
+venv/
+env/
+ENV/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Ignore local config/documentation files not needed by the function
+README.md
+task.md
+walkthrough.md
+implementation_plan.md

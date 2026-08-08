@@ -1,0 +1,6 @@
+supabase>=2.0.0
+google-genai
+pydantic>=2.0.0
+python-dotenv
+functions-framework>=3.0.0
+flask>=2.0.0
