@@ -308,6 +308,7 @@ def analyze_messages(to_be_analyzed: List[dict], model: str = DEFAULT_MODEL, del
         base_backoff = 5.0
         batch_success = False
         batch_result = None
+        last_error = None
         
         for attempt in range(max_retries):
             try:
@@ -329,6 +330,7 @@ def analyze_messages(to_be_analyzed: List[dict], model: str = DEFAULT_MODEL, del
                 break
                 
             except Exception as e:
+                last_error = e
                 error_str = str(e)
                 is_rate_limit = "429" in error_str or "RESOURCE_EXHAUSTED" in error_str or "quota" in error_str.lower() or "rate limit" in error_str.lower()
                 
@@ -347,9 +349,9 @@ def analyze_messages(to_be_analyzed: List[dict], model: str = DEFAULT_MODEL, del
                     break
                     
         if not batch_success:
-            print(f"\n[!] Critical: Batch {batch_num} failed repeatedly due to rate limit/errors.")
-            print("[*] Progress saved up to this point. Exiting to allow future resumption.")
-            break
+            err_msg = f"Batch {batch_num} failed repeatedly. Last error: {last_error}"
+            print(f"\n[!] Critical: {err_msg}")
+            raise RuntimeError(err_msg)
             
         expected_ids_str = {str(row["id"]) for row in chunk}
         returned_ids_str = {str(item.msg_id) for item in batch_result.transactions}
